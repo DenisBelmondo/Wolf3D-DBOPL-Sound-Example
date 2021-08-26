@@ -1,3 +1,0 @@
-E:\Documents\CPP\adlibtest\build\Debug\SDL.dll
-E:\Documents\CPP\adlibtest\build\Debug\SDL2d.dll
-E:\Documents\CPP\adlibtest\build\adlibtest.dir\Debug\adlibtest.vcxproj.CopyComplete
