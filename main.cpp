@@ -1,10 +1,6 @@
-#include <memory>
 #include <SDL.h>
 #include <SDL_timer.h>
 #include <SDL_mixer.h>
-#define _USE_MATH_DEFINES
-#include <cmath>
-#undef  _USE_MATH_DEFINES
 #include <cstdio>
 
 #include "main.hpp"
@@ -21,11 +17,15 @@ static void _init_opl3()
 {
     _opl.Init(SAMPLE_RATE);
 
+    // idk what this shit do i think these OPL regs need to be zeroed out???
     for (auto i = 1; i < 0xF6; i++)
     {
         _opl.WriteReg(i, 0);
     }
 
+    // waveform select enable
+    // otherwise, the instrument params would be ignored and everything will be
+    // played with a plain sine wave (a-la OPL1)
     _opl.WriteReg(1, 0x20);
 }
 
@@ -36,7 +36,11 @@ static void _shutdown_opl3()
 
 int main(int argc, char **argv)
 {
-    _init_opl3();
+    if (argc < 2)
+    {
+        puts("please supply path to .adl file");
+        return 1;
+    }
 
     auto err = SDL_Init(SDL_INIT_AUDIO);
 
@@ -54,13 +58,15 @@ int main(int argc, char **argv)
         return err;
     }
 
-    auto fp = fopen("GETGATLINGSND.adl", "rb");
+    auto fp = fopen(argv[1], "rb");
 
     if (!fp)
     {
-        puts("wtf");
+        printf("could not open \"%s\"\n", argv[1]);
         return 1;
     }
+
+    _init_opl3();
 
     AdlibSound adlsnd;
 
@@ -78,8 +84,8 @@ int main(int argc, char **argv)
 
     auto adlsnd_length = adlsnd.length * 2;
 
-    auto src_buffer = new int32_t[adlsnd_length * SAMPLES_PER_MUSIC_TICK];
-    auto dst_buffer = new int16_t[adlsnd_length * SAMPLES_PER_MUSIC_TICK * 2];
+    auto src_buffer = new int32_t[adlsnd_length * SAMPLES_PER_ADLIB_TICK];
+    auto dst_buffer = new int16_t[adlsnd_length * SAMPLES_PER_ADLIB_TICK * 2];
 
     int32_t *src_ptr = src_buffer;
 
@@ -88,6 +94,10 @@ int main(int argc, char **argv)
 
     for (uint32_t i = 0, dst_buffer_idx = 0; i < adlsnd_length; i++)
     {
+        //
+        // https://moddingwiki.shikadi.net/wiki/Adlib_sound_effect#Pitch_Data
+        //
+
         auto b = adlsnd.data[i];
 
         if (!b)
@@ -106,10 +116,13 @@ int main(int argc, char **argv)
             }
         }
 
-        _opl.chip.GenerateBlock2(SAMPLES_PER_MUSIC_TICK, src_ptr);
+        // GenerateBlock2 = OPL2, GenerateBlock3 = OPL3
+        _opl.chip.GenerateBlock2(SAMPLES_PER_ADLIB_TICK, src_ptr);
 
-        for (auto p = src_ptr; p < src_ptr + SAMPLES_PER_MUSIC_TICK; p++, dst_buffer_idx++)
+        // for every 32 bit mono sample from src_ptr, write a 16 bit stereo sample into dst_buffer
+        for (auto p = src_ptr; p < src_ptr + SAMPLES_PER_ADLIB_TICK; p++, dst_buffer_idx++)
         {
+            // take the sample and multiply by 4 to make it nice n loud
             auto sample = *p << 2;
 
             if (sample > SHRT_MAX)
@@ -121,15 +134,17 @@ int main(int argc, char **argv)
                 sample = SHRT_MIN;
             }
 
+            // convert 32 bit mono samples to 16 bit stereo
             dst_buffer[dst_buffer_idx * 2] = dst_buffer[dst_buffer_idx * 2 + 1] = sample;
         }
 
-        src_ptr += SAMPLES_PER_MUSIC_TICK;
+        // start writing SAMPLES_PER_ADLIB_TICK ahead the next iteration
+        src_ptr += SAMPLES_PER_ADLIB_TICK;
     }
 
     Mix_Chunk chunk;
     chunk.abuf = (uint8_t *)dst_buffer;
-    chunk.alen = adlsnd_length * SAMPLES_PER_MUSIC_TICK * 2;
+    chunk.alen = adlsnd_length * SAMPLES_PER_ADLIB_TICK * 2;
     chunk.allocated = false;
     chunk.volume = 128;
 
